@@ -1,23 +1,67 @@
-# Dock Trust Platform — Backend (scaffold inicial)
+# Dock Trust Platform — Backend
 
-Base de código para o time de engenharia partir daqui. Não é produção — é o
-esqueleto arquitetural com as decisões de modelagem já tomadas, testado na
-parte que mais importa (o motor de scoring).
+## Deploy no Railway (passo a passo, do zero)
 
-## Stack escolhida (assumida — ajuste se o time já tem padrão definido)
+1. **Criar conta** em railway.app (pode entrar com GitHub — recomendado,
+   já facilita o próximo passo).
+2. **Criar o projeto**: "New Project" → "Deploy from GitHub repo" → escolha
+   o repositório onde este backend está (ou faça upload/push dele pro
+   GitHub primeiro, mesmo fluxo que você já fez com o frontend).
+3. **Adicionar o banco**: dentro do projeto, clique "+ New" → "Database" →
+   "Add PostgreSQL". A Railway já cria e conecta sozinha — não precisa
+   copiar string de conexão manualmente.
+4. **Configurar variáveis de ambiente** do serviço do backend (aba
+   "Variables"):
+   - `DATABASE_URL` — clique no ícone de referência e selecione a variável
+     do serviço Postgres (`${{Postgres.DATABASE_URL}}`) — a Railway conecta
+     os dois serviços automaticamente, você só aponta um pro outro.
+   - `JWT_SECRET` — gere um valor aleatório longo e cole aqui. Pra gerar:
+     `node -e "console.log(require('crypto').randomBytes(48).toString('hex'))"`
+   - `CORS_ALLOWED_ORIGINS` — `https://docktrust.co,https://www.docktrust.co`
+   - `NODE_ENV` — `production`
+5. **Rodar as migrations e o seed** — na aba do serviço, abra o terminal
+   (ícone ">_" ou "Deploy Logs" → "Shell") e rode, na primeira vez:
+   ```bash
+   npx prisma migrate deploy
+   npx prisma db seed
+   ```
+   Isso cria as tabelas e popula o framework completo (232 perguntas) + os
+   usuários de demonstração (`demo@docktrust.co` / `DemoTrust`, tanto do
+   lado Dock quanto uma instituição "Dock Demo" já pronta).
+6. **Copiar a URL pública** do serviço (Settings → Networking → "Generate
+   Domain") — vai ser algo como `dock-trust-backend.up.railway.app`. É essa
+   URL que o frontend vai chamar (ver próxima etapa da conversa: trocar os
+   dados mockados do React por chamadas reais pra essa API).
 
-- **Node.js + TypeScript** — mesma linguagem no front (React) e back, facilita
-  compartilhar tipos de domínio (`src/types/domain.ts`).
-- **PostgreSQL + Prisma** — schema relacional, versionável, e o Prisma dá
-  migrations + client tipado de graça.
-- **Express** — só pra ter rotas HTTP simples no MVP; trocar por
-  Fastify/NestJS depois se o time preferir mais estrutura.
+Depois disso, qualquer `git push` no repositório redeploya sozinho — mesmo
+comportamento que você já tem configurado na Vercel.
 
-Se a Dock já tem stack padrão interno (ex: Java/Spring, .NET, Go), a peça que
-importa manter é a arquitetura, não a linguagem — veja "O que não pode mudar"
-abaixo.
+## Autenticação (nova nesta rodada)
 
-## Como rodar
+`POST /auth/login` (email + password) → se corretas, devolve `pendingToken`
+(não o token final ainda). `POST /auth/verify-otp` (pendingToken + código de
+6 dígitos) → devolve o JWT real, que vai no header
+`Authorization: Bearer <token>` de toda chamada seguinte.
+
+**Gap deliberado e documentado no topo de `src/routes/auth.ts`:** o código
+de verificação ainda não é enviado por e-mail/SMS — depende de escolher um
+provedor (Resend, Twilio etc.), o que ainda não foi decidido. Enquanto isso:
+- o código aparece no log do servidor (`console.log`);
+- fora de produção (`NODE_ENV !== "production"`), ele também volta no corpo
+  da resposta do `/auth/login`, só pra dar pra testar o fluxo completo sem
+  depender de e-mail de verdade.
+
+**Isso não pode ir pra produção assim** — sem um provedor real de envio, o
+segundo fator não protege nada (quem descobrir a senha também já recebe o
+código na mesma resposta). É o próximo gap a fechar depois que o banco
+estiver no ar.
+
+Usuários de demonstração já vêm no seed (`prisma/seed.ts`):
+- `demo@docktrust.co` / `DemoTrust` — lado Dock (`TRUST_ADMIN`)
+- `cliente@dockdemo.com` / `DemoTrust` — lado cliente (institution "Dock Demo")
+
+## Rodar localmente (antes de subir pra produção)
+
 
 ```bash
 npm install

@@ -166,7 +166,7 @@ function normalizeMetric(value: number, config?: MetricConfig): number {
 }
 
 function maturityLevelFor(score: number): number {
-  let level: number = MATURITY_LEVELS[0].level;
+  let level = MATURITY_LEVELS[0].level;
   for (const m of MATURITY_LEVELS) {
     if (score >= m.minScore) level = m.level;
   }

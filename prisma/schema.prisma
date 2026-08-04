@@ -32,11 +32,12 @@ enum DockRole {
 }
 
 model DockUser {
-  id        String   @id @default(cuid())
-  email     String   @unique
-  name      String
-  role      DockRole
-  createdAt DateTime @default(now())
+  id           String   @id @default(cuid())
+  email        String   @unique
+  name         String
+  role         DockRole
+  passwordHash String   // bcrypt — nunca armazenar senha em texto puro
+  createdAt    DateTime @default(now())
 }
 
 // ----------------------------------------------------------------------------
@@ -203,6 +204,7 @@ model InstitutionUser {
   email         String
   name          String
   role          String      // "admin", "executivo", "operacional" — papel DENTRO da instituição, não confundir com DockRole
+  passwordHash  String      // bcrypt — nunca armazenar senha em texto puro
 
   @@unique([institutionId, email])
 }

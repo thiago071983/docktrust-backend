@@ -1,7 +1,5 @@
-import dotenv from "dotenv";
-dotenv.config();
-
-import express, { Request, Response } from "express";
+import "dotenv/config";
+import express from "express";
 import cors from "cors";
 import { assessmentsRouter } from "./routes/assessments";
 import { institutionsRouter } from "./routes/institutions";
@@ -16,7 +14,7 @@ const app = express();
 // "https://docktrust.co,https://www.docktrust.co,http://localhost:5173").
 const allowedOrigins = (process.env.CORS_ALLOWED_ORIGINS || "http://localhost:5173")
   .split(",")
-  .map((o: string) => o.trim());
+  .map((o) => o.trim());
 
 app.use(
   cors({
@@ -27,7 +25,7 @@ app.use(
 
 app.use(express.json({ limit: "5mb" })); // limite maior por causa do bulk-import de respostas
 
-app.get("/health", (_req: Request, res: Response) => res.json({ status: "ok" }));
+app.get("/health", (_req, res) => res.json({ status: "ok" }));
 
 // /auth é a única rota pública — é justamente onde o token é emitido.
 app.use("/auth", authRouter);

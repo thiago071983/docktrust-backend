@@ -1,16 +1,24 @@
 // ============================================================================
 // Autenticação e controle de acesso
 // ============================================================================
-// STUB DELIBERADO: a extração do token (JWT/sessão) não está implementada
-// aqui — troque `extractPrincipal` pela integração real (ex: verificar JWT
-// assinado, ou validar sessão contra SSO corporativo). O que importa e
-// não deve mudar é o formato do `Principal` e onde as checagens acontecem.
+// O login real (senha + bcrypt) mora em routes/auth.ts, que emite um JWT.
+// Este middleware só verifica a assinatura desse token e reconstrói o
+// Principal a partir do payload — nunca confia em nada que o cliente envie
+// fora do token assinado.
 //
 // Regra de ouro: institutionId nunca vem "confiado" de req.params ou
-// req.body quando o principal é um cliente. Ele vem do próprio principal.
+// req.body quando o principal é um cliente. Ele vem do próprio principal
+// (que por sua vez vem do token, assinado pelo servidor no login).
 // ============================================================================
 
 import { Request, Response, NextFunction } from "express";
+import jwt from "jsonwebtoken";
+
+const JWT_SECRET = process.env.JWT_SECRET;
+if (!JWT_SECRET) {
+  // Falha alto e rápido — rodar sem segredo configurado é pior que não rodar.
+  throw new Error("JWT_SECRET não configurado. Defina a variável de ambiente antes de iniciar o servidor.");
+}
 
 export type Principal =
   | { type: "dock"; userId: string; dockRole: "TRUST_ADMIN" | "TRUST_ANALYST" | "TRUST_VIEWER" }
@@ -24,39 +32,27 @@ declare global {
   }
 }
 
-// Middleware base: resolve quem está fazendo a requisição.
-// TODO: trocar pelo decode real do token de autenticação.
-export function authenticate(req: Request, res: Response, next: NextFunction) {
-  // Exemplo de payload esperado no header, só para o protótipo funcionar
-  // fim-a-fim sem um provedor de auth real ainda plugado:
-  //   x-principal-type: "dock" | "institution"
-  //   x-principal-id: <userId>
-  //   x-institution-id: <institutionId>      (obrigatório se type=institution)
-  //   x-dock-role: TRUST_ADMIN | TRUST_ANALYST | TRUST_VIEWER  (se type=dock)
-  const type = req.header("x-principal-type");
+export function signToken(principal: Principal): string {
+  return jwt.sign(principal, JWT_SECRET!, { expiresIn: "12h" });
+}
 
-  if (type === "dock") {
-    req.principal = {
-      type: "dock",
-      userId: req.header("x-principal-id") || "unknown",
-      dockRole: (req.header("x-dock-role") as any) || "TRUST_VIEWER",
-    };
-  } else if (type === "institution") {
-    const institutionId = req.header("x-institution-id");
-    if (!institutionId) {
-      return res.status(401).json({ error: "institutionId ausente para principal do tipo institution" });
-    }
-    req.principal = {
-      type: "institution",
-      userId: req.header("x-principal-id") || "unknown",
-      institutionId,
-      institutionRole: req.header("x-institution-role") || "operacional",
-    };
-  } else {
+// Middleware base: resolve quem está fazendo a requisição a partir do JWT
+// enviado em "Authorization: Bearer <token>". Token inválido/expirado = 401.
+export function authenticate(req: Request, res: Response, next: NextFunction) {
+  const header = req.header("authorization") || "";
+  const token = header.startsWith("Bearer ") ? header.slice(7) : null;
+
+  if (!token) {
     return res.status(401).json({ error: "Não autenticado" });
   }
 
-  next();
+  try {
+    const payload = jwt.verify(token, JWT_SECRET!) as Principal;
+    req.principal = payload;
+    next();
+  } catch (err) {
+    return res.status(401).json({ error: "Token inválido ou expirado" });
+  }
 }
 
 // Garante que o institutionId sendo acessado (via :institutionId na rota)
