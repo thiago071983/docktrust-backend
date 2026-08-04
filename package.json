@@ -1,11 +1,11 @@
 {
   "name": "dock-trust-platform-backend",
-  "version": "0.2.1",
+  "version": "0.2.2",
   "private": true,
   "scripts": {
     "dev": "ts-node-dev --respawn src/server.ts",
     "build": "tsc && prisma generate",
-    "start": "prisma migrate deploy && prisma db seed && node dist/server.js",
+    "start": "prisma db push --accept-data-loss --skip-generate && prisma db seed && node dist/server.js",
     "test": "vitest run",
     "prisma:generate": "prisma generate",
     "prisma:migrate": "prisma migrate dev",
