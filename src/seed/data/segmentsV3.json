@@ -1,0 +1,82 @@
+[
+  {
+    "code": "BAN",
+    "name": "Bancos tradicionais",
+    "description": "Instituições bancárias com portfólio amplo de produtos e canais."
+  },
+  {
+    "code": "BDG",
+    "name": "Bancos digitais",
+    "description": "Bancos com operação predominantemente digital e alta dependência tecnológica."
+  },
+  {
+    "code": "IP",
+    "name": "Instituições de pagamento",
+    "description": "Emissores de moeda eletrônica, credenciadores e demais instituições de pagamento."
+  },
+  {
+    "code": "FIN",
+    "name": "Fintechs",
+    "description": "Empresas financeiras digitais não enquadradas em um perfil mais específico."
+  },
+  {
+    "code": "EMI",
+    "name": "Emissores de cartões e benefícios",
+    "description": "Emissores de instrumentos de pagamento, cartões e benefícios."
+  },
+  {
+    "code": "ADQ",
+    "name": "Adquirentes e subadquirentes",
+    "description": "Credenciadores, subcredenciadores e facilitadores de pagamento."
+  },
+  {
+    "code": "BAAS",
+    "name": "BaaS e embedded finance",
+    "description": "Plataformas que disponibilizam serviços financeiros para terceiros."
+  },
+  {
+    "code": "PRO",
+    "name": "Processadores e infraestruturas financeiras",
+    "description": "Processadores, câmaras e infraestruturas de pagamentos ou mercado."
+  },
+  {
+    "code": "COOP",
+    "name": "Cooperativas de crédito",
+    "description": "Cooperativas e sistemas cooperativos financeiros."
+  },
+  {
+    "code": "CRED",
+    "name": "SCDs, financeiras e crédito digital",
+    "description": "Instituições e plataformas especializadas em crédito."
+  },
+  {
+    "code": "CAM",
+    "name": "Câmbio e remessas",
+    "description": "Instituições que oferecem câmbio, remessas e transferências internacionais."
+  },
+  {
+    "code": "INV",
+    "name": "Corretoras, distribuidoras e gestoras",
+    "description": "Participantes do mercado de capitais e gestão de recursos."
+  },
+  {
+    "code": "SEG",
+    "name": "Seguradoras e insurtechs",
+    "description": "Seguradoras, corretoras de seguros e plataformas digitais de seguros."
+  },
+  {
+    "code": "MKT",
+    "name": "Marketplaces e varejistas financeiros",
+    "description": "Empresas não financeiras que oferecem pagamentos, crédito ou contas."
+  },
+  {
+    "code": "CRIP",
+    "name": "Criptoativos, VASPs e tokenização",
+    "description": "Prestadores de serviços de ativos virtuais e plataformas de tokenização."
+  },
+  {
+    "code": "TEC",
+    "name": "Provedores críticos de tecnologia",
+    "description": "Provedores de cloud, SaaS, segurança, dados ou tecnologia para o setor financeiro."
+  }
+]

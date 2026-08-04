@@ -1,0 +1,290 @@
+// ============================================================================
+// DOCK TRUST PLATFORM — Data Model
+// ============================================================================
+// Hierarquia: Framework > Pillar > Control > Question
+// Execução:   Institution > Assessment > Response > ScoreSnapshot
+// ============================================================================
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+// ----------------------------------------------------------------------------
+// IDENTIDADE E ACESSO
+// ----------------------------------------------------------------------------
+// Dois tipos de principal, deliberadamente separados (não é "role" numa
+// mesma tabela de usuário): DockUser enxerga múltiplas instituições e pode
+// configurar o framework; InstitutionUser está sempre preso a UMA
+// instituição. Essa separação é o que torna impossível, por construção,
+// um usuário de cliente "vazar" para ver dados de outro cliente — não tem
+// nem como montar essa query.
+// ----------------------------------------------------------------------------
+
+enum DockRole {
+  TRUST_ADMIN     // configura framework, cria perguntas/pesos, vê todas as instituições
+  TRUST_ANALYST   // revisa assessments, vê todas as instituições, não configura framework
+  TRUST_VIEWER    // leitura (ex: comercial acompanhando score de contas)
+}
+
+model DockUser {
+  id        String   @id @default(cuid())
+  email     String   @unique
+  name      String
+  role      DockRole
+  createdAt DateTime @default(now())
+}
+
+// ----------------------------------------------------------------------------
+// FRAMEWORK (estrutura de avaliação — versionada, para poder evoluir sem
+// quebrar históricos de score já calculados)
+// ----------------------------------------------------------------------------
+
+model Framework {
+  id          String   @id @default(cuid())
+  name        String   // "Dock Trust Framework"
+  version     String   // "1.0", "1.1" ...
+  isActive    Boolean  @default(true)
+  createdAt   DateTime @default(now())
+
+  pillars     Pillar[]
+  assessments Assessment[]
+}
+
+// Os 5 pilares: Trust Governance, Resilient Operations,
+// Unified Financial Protection, Secure Digital Platforms, Trusted Ecosystem
+model Pillar {
+  id           String   @id @default(cuid())
+  frameworkId  String
+  framework    Framework @relation(fields: [frameworkId], references: [id])
+
+  code         String   // "T1", "R", "U", "S", "T2" (T aparece 2x no framework)
+  name         String
+  description  String
+  colorHex     String   // referência de marca (azul, teal, verde, dourado, roxo)
+  weight       Float    @default(1.0) // peso do pilar no score geral (soma = 1.0)
+  order        Int
+
+  controls     Control[]
+  pillarScores PillarScore[]
+
+  @@unique([frameworkId, code])
+}
+
+// Catálogo das 5 soluções Dock Trust Solutions™ — destino das recomendações
+// geradas a partir do score. Ver src/seed/servicesCatalog.ts para os dados.
+model Service {
+  id          String    @id // usa slugs estáveis: "trust-enablement", "financial-protection" etc.
+  name        String
+  pitch       String
+  bullets     String[]
+
+  controls    Control[]
+}
+
+// Controle = tema dentro do pilar (ex: "Prevenção à Fraude", "IAM & Acessos")
+model Control {
+  id                    String   @id @default(cuid())
+  pillarId              String
+  pillar                Pillar   @relation(fields: [pillarId], references: [id])
+
+  name                  String
+  description           String?
+  weight                Float    @default(1.0) // peso do controle dentro do pilar
+  order                 Int
+
+  // Quando o score deste controle fica abaixo do limiar (ver
+  // scoring/recommendations.ts), esta é a solução Dock Trust recomendada —
+  // é o vínculo que transforma "gap no score" em "oferta de serviço".
+  recommendedServiceId  String?
+  recommendedService    Service? @relation(fields: [recommendedServiceId], references: [id])
+
+  questions             Question[]
+}
+
+enum QuestionType {
+  MATURITY_SCALE   // resposta 1-5 (níveis de maturidade, como o próprio framework)
+  BOOLEAN          // sim/não
+  MULTIPLE_CHOICE  // opções com score pré-definido cada
+  METRIC           // valor numérico vindo de dado real (ex: taxa de fraude, uptime)
+  EVIDENCE_UPLOAD  // exige anexo/evidência, avaliado por analista
+}
+
+enum ApplicabilityType {
+  UNIVERSAL    // sempre entra no assessment, qualquer instituição
+  SEGMENTED    // entra só se o segmento da instituição estiver em applicableSegments
+  CONDITIONAL  // entra só se institution.applicabilityFlags[conditionKey] === true
+}
+
+model Question {
+  id            String       @id @default(cuid())
+  controlId     String
+  control       Control      @relation(fields: [controlId], references: [id])
+
+  text          String
+  helpText      String?
+  type          QuestionType
+  weight        Float        @default(1.0)
+  order         Int
+
+  // Framework(s)/norma(s) de mercado que essa pergunta operacionaliza — ex:
+  // ["Resolução BCB nº 85/2021", "NIST CSF PR.AA"]. É o que dá lastro para
+  // apresentar a metodologia ao Bacen e a auditores como operacionalização
+  // de exigências já reconhecidas, não um questionário proprietário isolado.
+  regulatoryRefs String[]
+
+  // Aplicabilidade (Dock Trust Framework v3, gerado da planilha oficial) —
+  // ver scoring/applicability.ts para a lógica de filtro completa.
+  applicability      ApplicabilityType @default(UNIVERSAL)
+  applicableSegments String[]          // usado só quando applicability = SEGMENTED
+  conditionKey       String?           // usado só quando applicability = CONDITIONAL
+
+  // Para MULTIPLE_CHOICE / MATURITY_SCALE: opções e o score (0-100) de cada uma
+  options       QuestionOption[]
+
+  // Para METRIC: de onde vem o dado e como normalizar em 0-100
+  metricSource  String?      // ex: "fraud_rate_monthly", "uptime_pct"
+  metricConfig  Json?        // { "target": 99.9, "direction": "higher_is_better" }
+
+  responses     Response[]
+}
+
+model QuestionOption {
+  id          String   @id @default(cuid())
+  questionId  String
+  question    Question @relation(fields: [questionId], references: [id])
+
+  label       String
+  scoreValue  Float    // 0-100
+  order       Int
+}
+
+
+// ----------------------------------------------------------------------------
+// INSTITUIÇÃO (tenant) E CICLO DE AVALIAÇÃO
+// ----------------------------------------------------------------------------
+
+model Institution {
+  id            String   @id @default(cuid())
+  name          String
+  segment       String?  // legado — mantido por compatibilidade, preferir `segments`
+  dockClientId  String?  @unique // vínculo com o cadastro comercial na Dock
+
+  // Segmentação real (Dock Trust Framework v3) — capturada obrigatoriamente
+  // no onboarding (POST /institutions), porque determina quais perguntas do
+  // framework se aplicam a essa instituição (ver scoring/applicability.ts).
+  // Códigos vêm do catálogo em src/seed/data/segmentsV3.json (ex: ["IP","BAAS"]).
+  segments      String[]
+
+  // Flags booleanos usados pelas perguntas do tipo CONDITIONAL — chave é o
+  // `conditionKey` da pergunta (ex: { "PROCESSES_PERSONAL_DATA": true }).
+  // Ver src/seed/data/conditionsV3.json para a lista completa de chaves.
+  applicabilityFlags Json  @default("{}")
+
+  createdAt     DateTime @default(now())
+
+  assessments   Assessment[]
+  users         InstitutionUser[]
+}
+
+// Usuário do lado do cliente — SEMPRE amarrado a institutionId. Toda query
+// de Response/ScoreSnapshot feita por esse tipo de usuário deve ser
+// obrigatoriamente filtrada por institutionId = this.institutionId,
+// aplicado no middleware de auth, nunca confiando em parâmetro de rota.
+model InstitutionUser {
+  id            String      @id @default(cuid())
+  institutionId String
+  institution   Institution @relation(fields: [institutionId], references: [id])
+
+  email         String
+  name          String
+  role          String      // "admin", "executivo", "operacional" — papel DENTRO da instituição, não confundir com DockRole
+
+  @@unique([institutionId, email])
+}
+
+enum AssessmentStatus {
+  DRAFT
+  IN_PROGRESS
+  SUBMITTED
+  REVIEWED     // validado por analista Dock Trust
+  ARCHIVED
+}
+
+// Um Assessment = uma "rodada" do ciclo (ex: Health Check Trimestral)
+model Assessment {
+  id            String           @id @default(cuid())
+  institutionId String
+  institution   Institution      @relation(fields: [institutionId], references: [id])
+
+  frameworkId   String
+  framework     Framework        @relation(fields: [frameworkId], references: [id])
+
+  cycleLabel    String           // "Q3 2026", "Assessment Inicial"
+  status        AssessmentStatus @default(DRAFT)
+
+  startedAt     DateTime         @default(now())
+  submittedAt   DateTime?
+  reviewedAt    DateTime?
+
+  responses     Response[]
+  scoreSnapshot ScoreSnapshot?
+}
+
+model Response {
+  id            String     @id @default(cuid())
+  assessmentId  String
+  assessment    Assessment @relation(fields: [assessmentId], references: [id])
+
+  questionId    String
+  question      Question   @relation(fields: [questionId], references: [id])
+
+  // valor bruto informado (id da opção escolhida, true/false, ou número da métrica)
+  rawValue      Json
+  // score normalizado 0-100 já calculado para essa resposta
+  normalizedScore Float
+
+  evidenceUrl   String?
+  notes         String?
+
+  updatedAt     DateTime   @updatedAt
+
+  @@unique([assessmentId, questionId])
+}
+
+// ----------------------------------------------------------------------------
+// RESULTADO (o "Dock Trust Score" e o histórico que alimenta dashboards)
+// ----------------------------------------------------------------------------
+
+// Snapshot congelado no momento em que o assessment é fechado —
+// é isso que compõe o histórico/tendência do Trust Score Contínuo.
+model ScoreSnapshot {
+  id            String     @id @default(cuid())
+  assessmentId  String     @unique
+  assessment    Assessment @relation(fields: [assessmentId], references: [id])
+
+  overallScore  Float      // 0-100 — "Dock Trust Score"
+  maturityLevel Int        // 1-5 (Protected, Verified, Resilient, Financially Protected, Trusted Institution)
+
+  createdAt     DateTime   @default(now())
+
+  pillarScores  PillarScore[]
+}
+
+model PillarScore {
+  id              String        @id @default(cuid())
+  snapshotId      String
+  snapshot        ScoreSnapshot @relation(fields: [snapshotId], references: [id])
+
+  pillarId        String
+  pillar          Pillar        @relation(fields: [pillarId], references: [id])
+
+  score           Float         // 0-100
+  maturityLevel   Int           // 1-5 por pilar também (dá pra ter maturidade desigual entre pilares)
+
+  @@unique([snapshotId, pillarId])
+}

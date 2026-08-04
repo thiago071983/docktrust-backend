@@ -1,0 +1,50 @@
+[
+  {
+    "key": "PROCESSES_PERSONAL_DATA",
+    "description": "Aplicar quando a organização tratar dados pessoais ou dados pessoais sensíveis."
+  },
+  {
+    "key": "HAS_INTERNAL_AUDIT",
+    "description": "Aplicar quando houver função de Auditoria Interna própria, compartilhada ou terceirizada, ou exigência regulatória equivalente."
+  },
+  {
+    "key": "HAS_CUSTOMER_RELATIONSHIP",
+    "description": "Aplicar quando a organização cadastrar, identificar ou manter relacionamento com clientes, usuários, lojistas ou beneficiários."
+  },
+  {
+    "key": "SUBJECT_TO_AML_CFT",
+    "description": "Aplicar quando a organização estiver sujeita a obrigações de PLD/FTP ou participar de fluxos financeiros regulados."
+  },
+  {
+    "key": "PROCESSES_TRANSACTIONS",
+    "description": "Aplicar quando a organização oferecer, autorizar, processar ou monitorar transações financeiras."
+  },
+  {
+    "key": "OPERATES_PIX",
+    "description": "Aplicar quando a organização oferecer, processar ou suportar operações Pix."
+  },
+  {
+    "key": "DEVELOPS_SOFTWARE",
+    "description": "Aplicar quando a organização desenvolver, customizar ou manter aplicações, APIs, automações ou componentes de software."
+  },
+  {
+    "key": "USES_OR_EXPOSES_APIS",
+    "description": "Aplicar quando a organização consumir, disponibilizar ou operar APIs."
+  },
+  {
+    "key": "OFFERS_DIGITAL_CHANNELS",
+    "description": "Aplicar quando a organização disponibilizar aplicações ou canais digitais para clientes, parceiros ou colaboradores."
+  },
+  {
+    "key": "USES_CLOUD",
+    "description": "Aplicar quando a organização utilizar serviços de computação em nuvem."
+  },
+  {
+    "key": "USES_AI",
+    "description": "Aplicar quando a organização desenvolver, contratar ou utilizar sistemas e modelos de inteligência artificial."
+  },
+  {
+    "key": "USES_THIRD_PARTIES",
+    "description": "Aplicar quando a organização contratar terceiros, manter parceiros ou depender de serviços externos relevantes."
+  }
+]
