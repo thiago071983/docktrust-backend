@@ -22,8 +22,17 @@ app.use(
   cors({
     origin: allowedOrigins,
     credentials: true,
+    methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+    allowedHeaders: ["Content-Type", "Authorization"],
   })
 );
+
+// Responde explicitamente ao preflight (OPTIONS) pra qualquer rota — reforço
+// deliberado: o middleware `cors` acima já deveria cobrir isso sozinho, mas
+// alguns provedores/proxies na frente da API tratam OPTIONS de forma
+// diferente, e um PUT/DELETE sem resposta correta de preflight aparece pro
+// navegador como falha de rede genérica, não como um erro de CORS claro.
+app.options("*", cors({ origin: allowedOrigins, credentials: true }));
 
 app.use(express.json({ limit: "5mb" })); // limite maior por causa do bulk-import de respostas
 
