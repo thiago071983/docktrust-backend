@@ -128,7 +128,7 @@ assessmentsRouter.put("/:id/responses/:questionId", async (req: Request, res: Ex
         : Math.max(0, Math.min(100, ((floor - numeric) / (floor - target)) * 100));
   } else {
     const option = question.options?.find((o) => o.id === value);
-    normalizedScore = option ? option.scoreValue : 0;
+    normalizedScore = option ? option.score : 0;
   }
 
   const assessmentId = req.params.id;
@@ -158,7 +158,7 @@ assessmentsRouter.post("/:id/responses", async (req: Request, res: ExpressRespon
       const question = findQuestionById(framework, r.questionId);
       if (!question) return null;
       const option = question.options?.find((o) => o.id === r.value);
-      const normalizedScore = option ? option.scoreValue : 0;
+      const normalizedScore = option ? option.score : 0;
       return prisma.response.upsert({
         where: { assessmentId_questionId: { assessmentId, questionId: r.questionId } },
         update: { rawValue: r.value as any, normalizedScore, updatedAt: new Date() },
