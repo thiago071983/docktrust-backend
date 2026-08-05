@@ -170,7 +170,14 @@ async function main() {
   // caminho "institution" do middleware de acesso, não só o "dock".
   const existingDemoInstitution = await prisma.institution.findFirst({ where: { name: "Dock Demo" } });
   if (existingDemoInstitution) {
-    console.log("✓ Institution 'Dock Demo' já existe — pulando");
+    // Já existe (de um seed anterior a estes dois campos) — garante que os
+    // módulos de demonstração ficam marcados como contratados mesmo sem
+    // recriar a instituição do zero.
+    await prisma.institution.update({
+      where: { id: existingDemoInstitution.id },
+      data: { hasThreatIntel: true, hasExposedSurface: true },
+    });
+    console.log("✓ Institution 'Dock Demo' já existia — atualizada com os módulos contratados (Threat Intel + Exposed Surface)");
   } else {
     const conditionKeys = [
       "USES_THIRD_PARTIES", "SUBJECT_TO_AML_CFT", "HAS_CUSTOMER_RELATIONSHIP", "DEVELOPS_SOFTWARE",
@@ -182,6 +189,8 @@ async function main() {
         name: "Dock Demo",
         segments: ["BDG"],
         applicabilityFlags: Object.fromEntries(conditionKeys.map((k) => [k, true])),
+        hasThreatIntel: true,
+        hasExposedSurface: true,
       },
     });
 
