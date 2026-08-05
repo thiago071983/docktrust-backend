@@ -5,7 +5,7 @@
 //
 // Popula: catálogo de serviços, o Dock Trust Framework v3 completo (232
 // perguntas geradas da planilha oficial), e a conta administradora inicial
-// (admin@docktrust.co — senha vem de INITIAL_ADMIN_PASSWORD, variável de
+// (admin@docktrust.co — senha vem de ADMIN_INITIAL_SECRET, variável de
 // ambiente). Ambiente de produção: nenhuma instituição fictícia é criada —
 // se uma "Dock Demo" existir de uma fase anterior, este script a remove.
 // ============================================================================
@@ -154,16 +154,16 @@ async function main() {
   }
 
   // 3. DockUser administrador — em produção, a senha inicial vem de uma
-  // variável de ambiente (INITIAL_ADMIN_PASSWORD), nunca escrita aqui no
+  // variável de ambiente (ADMIN_INITIAL_SECRET), nunca escrita aqui no
   // código. Se uma conta antiga demo@docktrust.co existir (de antes desta
   // limpeza), ela é renomeada para a identidade de produção em vez de
   // deixar duas contas soltas.
   const ADMIN_EMAIL = "admin@docktrust.co";
   const ADMIN_NAME = "Administrador Dock Trust";
-  const adminPassword = process.env.INITIAL_ADMIN_PASSWORD;
+  const adminPassword = process.env.ADMIN_INITIAL_SECRET;
   if (!adminPassword) {
     // DIAGNÓSTICO TEMPORÁRIO — nunca loga valores, só os NOMES das variáveis
-    // que o processo realmente enxerga. É pra descobrir se INITIAL_ADMIN_PASSWORD
+    // que o processo realmente enxerga. É pra descobrir se ADMIN_INITIAL_SECRET
     // chega com outro nome/typo, ou se não chega de verdade nesse container.
     const envKeys = Object.keys(process.env).sort();
     console.log("\n[DIAGNÓSTICO] Variáveis de ambiente visíveis neste processo (só os nomes):");
@@ -171,7 +171,7 @@ async function main() {
     console.log("[DIAGNÓSTICO] Existe alguma parecida com ADMIN ou PASSWORD?",
       envKeys.filter((k) => /ADMIN|PASSWORD/i.test(k)));
     throw new Error(
-      "INITIAL_ADMIN_PASSWORD não configurada. Defina essa variável de ambiente (a senha inicial da conta admin@docktrust.co) antes de rodar o seed em produção."
+      "ADMIN_INITIAL_SECRET não configurada. Defina essa variável de ambiente (a senha inicial da conta admin@docktrust.co) antes de rodar o seed em produção."
     );
   }
   const adminPasswordHash = await bcrypt.hash(adminPassword, 10);
