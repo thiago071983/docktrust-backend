@@ -12,7 +12,7 @@ export type QuestionType =
 export interface QuestionOptionDTO {
   id: string;
   label: string;
-  scoreValue: number; // 0-100
+  score: number; // 0-100 — nome do campo bate com o JSON real gerado da planilha (frameworkV3.json), NÃO com a coluna do banco (QuestionOption.scoreValue), que é traduzida no seed
 }
 
 export interface MetricConfig {
