@@ -186,6 +186,13 @@ model Institution {
   // Ver src/seed/data/conditionsV3.json para a lista completa de chaves.
   applicabilityFlags Json  @default("{}")
 
+  // Contratação de módulos avulsos — controla se as abas Trust Threat
+  // Intel / Trust Exposed Surface aparecem pra essa instituição. Diferente
+  // de applicabilityFlags (que decide QUAIS PERGUNTAS aparecem no
+  // assessment), isto decide QUAIS MÓDULOS/ABAS aparecem na navegação.
+  hasThreatIntel     Boolean @default(false)
+  hasExposedSurface  Boolean @default(false)
+
   createdAt     DateTime @default(now())
 
   assessments   Assessment[]
