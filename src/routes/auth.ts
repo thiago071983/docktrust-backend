@@ -17,6 +17,7 @@ import bcrypt from "bcryptjs";
 import crypto from "crypto";
 import { prisma } from "../db";
 import { signToken } from "../middleware/auth";
+import { asyncHandler } from "../middleware/asyncHandler";
 
 export const authRouter = Router();
 
@@ -40,7 +41,7 @@ function generateOtp(): string {
 // POST /auth/login — verifica e-mail + senha. Se corretos, NÃO devolve o
 // token ainda: gera um código de verificação e devolve um pendingToken, que
 // o cliente troca pelo token real em /auth/verify-otp.
-authRouter.post("/login", async (req: Request, res: ExpressResponse) => {
+authRouter.post("/login", asyncHandler(async (req: Request, res: ExpressResponse) => {
   const { email, password } = req.body as { email?: string; password?: string };
   if (!email || !password) {
     return res.status(400).json({ error: "email e password são obrigatórios" });
@@ -77,7 +78,7 @@ authRouter.post("/login", async (req: Request, res: ExpressResponse) => {
   // Mesma mensagem genérica pros dois casos (usuário não existe / senha
   // errada) — não dar pista de qual e-mail está ou não cadastrado.
   return res.status(401).json({ error: "Credenciais inválidas" });
-});
+}));
 
 function startOtpChallenge(
   res: ExpressResponse,

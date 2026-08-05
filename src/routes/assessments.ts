@@ -8,6 +8,7 @@ import { recommendServices } from "../scoring/recommendations";
 import { filterFrameworkForInstitution } from "../scoring/applicability";
 import { dockTrustFrameworkV3 } from "../seed/frameworkSeedV3";
 import { prisma } from "../db";
+import { asyncHandler } from "../middleware/asyncHandler";
 import { RawResponse, InstitutionProfileDTO, FrameworkDTO } from "../types/domain";
 
 export const assessmentsRouter = Router({ mergeParams: true });
@@ -53,7 +54,7 @@ async function getPillarCodeToDbId(): Promise<Record<string, string>> {
 // assessment em andamento da instituição, criando um novo se não existir
 // nenhum (DRAFT/IN_PROGRESS). É o ponto de entrada: o frontend chama isso
 // ao abrir a aba Assessment, pega o id, e usa nas rotas abaixo.
-assessmentsRouter.get("/current", async (req: Request, res: ExpressResponse) => {
+assessmentsRouter.get("/current", asyncHandler(async (req: Request, res: ExpressResponse) => {
   const institutionId = req.params.institutionId;
 
   let assessment = await prisma.assessment.findFirst({
@@ -78,30 +79,30 @@ assessmentsRouter.get("/current", async (req: Request, res: ExpressResponse) => 
   }
 
   res.json(assessment);
-});
+}));
 
 // GET /assessments/:id/questions — devolve o framework JÁ FILTRADO pelo
 // segmento e pelas condições de aplicabilidade da instituição.
-assessmentsRouter.get("/:id/questions", async (req: Request, res: ExpressResponse) => {
+assessmentsRouter.get("/:id/questions", asyncHandler(async (req: Request, res: ExpressResponse) => {
   const framework = await getFilteredFrameworkForInstitution(req.params.institutionId);
   if (!framework) return res.status(404).json({ error: "Instituição não encontrada" });
   res.json(framework);
-});
+}));
 
 // GET /assessments/:id/responses — devolve todas as respostas já salvas
 // desse assessment, pra UI pré-popular o formulário (retomar de onde parou).
-assessmentsRouter.get("/:id/responses", async (req: Request, res: ExpressResponse) => {
+assessmentsRouter.get("/:id/responses", asyncHandler(async (req: Request, res: ExpressResponse) => {
   const responses = await prisma.response.findMany({
     where: { assessmentId: req.params.id },
     select: { questionId: true, rawValue: true },
   });
   res.json({ responses: responses.map((r) => ({ questionId: r.questionId, value: r.rawValue })) });
-});
+}));
 
 // PUT /assessments/:id/responses/:questionId — salva UMA resposta
 // imediatamente. É a rota que a UI chama a cada resposta dada — garante que
 // nada se perde mesmo se o cliente fechar a aba logo em seguida.
-assessmentsRouter.put("/:id/responses/:questionId", async (req: Request, res: ExpressResponse) => {
+assessmentsRouter.put("/:id/responses/:questionId", asyncHandler(async (req: Request, res: ExpressResponse) => {
   const { value } = req.body as { value: RawResponse["value"] };
   if (value === undefined) {
     return res.status(400).json({ error: "value é obrigatório" });
@@ -139,11 +140,11 @@ assessmentsRouter.put("/:id/responses/:questionId", async (req: Request, res: Ex
   });
 
   res.json({ questionId: req.params.questionId, saved: true, savedAt: new Date().toISOString() });
-});
+}));
 
 // POST /assessments/:id/responses — upsert em lote + score recalculado com
 // TODAS as respostas já salvas no banco (não só o payload deste request).
-assessmentsRouter.post("/:id/responses", async (req: Request, res: ExpressResponse) => {
+assessmentsRouter.post("/:id/responses", asyncHandler(async (req: Request, res: ExpressResponse) => {
   const { responses } = req.body as { responses: RawResponse[] };
   if (!Array.isArray(responses)) {
     return res.status(400).json({ error: "responses deve ser um array" });
@@ -175,12 +176,12 @@ assessmentsRouter.post("/:id/responses", async (req: Request, res: ExpressRespon
   const recommendations = recommendServices(result.controlScores, result.maturityLevel);
 
   res.json({ ...result, recommendations });
-});
+}));
 
 // POST /assessments/:id/submit — fecha o ciclo: recalcula com tudo que está
 // salvo no banco (ignora qualquer coisa que só exista em memória no
 // navegador), congela o ScoreSnapshot, e marca o assessment como SUBMITTED.
-assessmentsRouter.post("/:id/submit", async (req: Request, res: ExpressResponse) => {
+assessmentsRouter.post("/:id/submit", asyncHandler(async (req: Request, res: ExpressResponse) => {
   const assessmentId = req.params.id;
 
   const framework = await getFilteredFrameworkForInstitution(req.params.institutionId);
@@ -220,4 +221,4 @@ assessmentsRouter.post("/:id/submit", async (req: Request, res: ExpressResponse)
   });
 
   res.json({ status: "SUBMITTED", ...result, recommendations });
-});
+}));

@@ -5,6 +5,7 @@
 import { Router, Request, Response as ExpressResponse } from "express";
 import bcrypt from "bcryptjs";
 import { requireInstitutionAccess, requireAnyDockUser, requireCanManageInstitutionUsers } from "../middleware/auth";
+import { asyncHandler } from "../middleware/asyncHandler";
 import { prisma } from "../db";
 import { dockTrustFrameworkV3 } from "../seed/frameworkSeedV3";
 import { CLIENT_SEGMENTS } from "../seed/segmentsCatalog";
@@ -56,7 +57,7 @@ institutionsRouter.use(
 institutionsRouter.get(
   "/:institutionId/score-history",
   requireInstitutionAccess,
-  async (req: Request, res: ExpressResponse) => {
+  asyncHandler(async (req: Request, res: ExpressResponse) => {
     const snapshots = await prisma.scoreSnapshot.findMany({
       where: { assessment: { institutionId: req.params.institutionId } },
       include: { assessment: true, pillarScores: { include: { pillar: true } } },
@@ -81,23 +82,23 @@ institutionsRouter.get(
 
     const trend = buildTrendSeries(snapshotsChronological);
     res.json({ trend });
-  }
+  })
 );
 
 // GET /institutions — só equipe Dock enxerga a lista completa de clientes.
-institutionsRouter.get("/", requireAnyDockUser, async (req: Request, res: ExpressResponse) => {
+institutionsRouter.get("/", requireAnyDockUser, asyncHandler(async (req: Request, res: ExpressResponse) => {
   const institutions = await prisma.institution.findMany({
     select: { id: true, name: true, segments: true, createdAt: true },
     orderBy: { createdAt: "desc" },
   });
   res.json({ institutions });
-});
+}));
 
 // POST /institutions — onboarding de um novo cliente. `initialAdmin` agora
 // exige senha própria (autenticação real) — em versão futura isso vira um
 // convite por e-mail com definição de senha pelo próprio usuário; por ora,
 // a Dock define a senha inicial diretamente e repassa ao cliente.
-institutionsRouter.post("/", requireAnyDockUser, async (req: Request, res: ExpressResponse) => {
+institutionsRouter.post("/", requireAnyDockUser, asyncHandler(async (req: Request, res: ExpressResponse) => {
   const { name, segments, applicabilityFlags, initialAdmin } = req.body as {
     name: string;
     segments: string[];
@@ -160,19 +161,19 @@ institutionsRouter.post("/", requireAnyDockUser, async (req: Request, res: Expre
     applicableQuestionsCount,
     totalQuestionsInFramework: 232,
   });
-});
+}));
 
 // GET /institutions/:institutionId/users
 institutionsRouter.get(
   "/:institutionId/users",
   requireInstitutionAccess,
-  async (req: Request, res: ExpressResponse) => {
+  asyncHandler(async (req: Request, res: ExpressResponse) => {
     const users = await prisma.institutionUser.findMany({
       where: { institutionId: req.params.institutionId },
       select: { id: true, name: true, email: true, role: true }, // nunca devolve passwordHash
     });
     res.json({ users });
-  }
+  })
 );
 
 // POST /institutions/:institutionId/users — inclui um novo usuário NAQUELA
@@ -181,7 +182,7 @@ institutionsRouter.post(
   "/:institutionId/users",
   requireInstitutionAccess,
   requireCanManageInstitutionUsers,
-  async (req: Request, res: ExpressResponse) => {
+  asyncHandler(async (req: Request, res: ExpressResponse) => {
     const { name, email, role, password } = req.body as {
       name: string;
       email: string;
@@ -213,25 +214,25 @@ institutionsRouter.post(
     });
 
     res.status(201).json({ id: user.id, name: user.name, email: user.email, role: user.role, institutionId: user.institutionId });
-  }
+  })
 );
 
 // GET /institutions/:institutionId
 institutionsRouter.get(
   "/:institutionId",
   requireInstitutionAccess,
-  async (req: Request, res: ExpressResponse) => {
+  asyncHandler(async (req: Request, res: ExpressResponse) => {
     const institution = await prisma.institution.findUnique({ where: { id: req.params.institutionId } });
     if (!institution) return res.status(404).json({ error: "Instituição não encontrada" });
     res.json(institution);
-  }
+  })
 );
 
 // POST /institutions/:institutionId/assessments/:assessmentId/responses/bulk-import
 institutionsRouter.post(
   "/:institutionId/assessments/:assessmentId/responses/bulk-import",
   requireInstitutionAccess,
-  async (req: Request, res: ExpressResponse) => {
+  asyncHandler(async (req: Request, res: ExpressResponse) => {
     const { fileContent, fileFormat } = req.body as { fileContent: string; fileFormat: "json" | "csv" };
     if (!fileContent || !fileFormat) {
       return res.status(400).json({ error: "fileContent e fileFormat são obrigatórios" });
@@ -270,5 +271,5 @@ institutionsRouter.post(
       unmatchedQuestionIds: unmatched,
       currentScore: scoreResult,
     });
-  }
+  })
 );
