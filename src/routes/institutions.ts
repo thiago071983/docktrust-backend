@@ -3,18 +3,32 @@
 // ============================================================================
 
 import { Router, Request, Response as ExpressResponse } from "express";
+import bcrypt from "bcryptjs";
 import { requireInstitutionAccess, requireAnyDockUser, requireCanManageInstitutionUsers } from "../middleware/auth";
+import { prisma } from "../db";
 import { dockTrustFrameworkV3 } from "../seed/frameworkSeedV3";
 import { CLIENT_SEGMENTS } from "../seed/segmentsCatalog";
 import { APPLICABILITY_CONDITIONS } from "../seed/conditionsCatalog";
 import { countApplicableQuestions, filterFrameworkForInstitution } from "../scoring/applicability";
 import { calculateScore } from "../scoring/engine";
 import { parseImportPayload, matchImportEntries } from "../import/parseResponses";
-import { RawResponse } from "../types/domain";
+import { RawResponse, InstitutionProfileDTO } from "../types/domain";
 import { assessmentsRouter } from "./assessments";
 import { buildTrendSeries, CycleSnapshotDTO } from "../scoring/compareCycles";
 
 export const institutionsRouter = Router();
+
+// Helper compartilhado — carrega o perfil de aplicabilidade real de uma
+// instituição a partir do banco (nunca assume perfil vazio quando dá pra
+// buscar de verdade).
+async function loadInstitutionProfile(institutionId: string): Promise<InstitutionProfileDTO | null> {
+  const institution = await prisma.institution.findUnique({ where: { id: institutionId } });
+  if (!institution) return null;
+  return {
+    segments: institution.segments,
+    conditionFlags: (institution.applicabilityFlags as Record<string, boolean>) || {},
+  };
+}
 
 // GET /institutions/segments — catálogo de segmentos (para a UI de
 // onboarding renderizar os 16 códigos sem precisar hardcodar a lista).
@@ -30,9 +44,7 @@ institutionsRouter.get("/applicability-conditions", requireAnyDockUser, (req: Re
 
 // Todas as rotas de assessment de uma instituição (/questions, /responses,
 // /submit) passam pelo mesmo guard: cliente só acessa a própria instituição,
-// Dock acessa qualquer uma. Isso substitui o mount solto que existia antes
-// em /assessments — agora o institutionId sempre faz parte da rota e é
-// sempre validado antes de qualquer handler rodar.
+// Dock acessa qualquer uma.
 institutionsRouter.use(
   "/:institutionId/assessments",
   requireInstitutionAccess,
@@ -41,50 +53,63 @@ institutionsRouter.use(
 
 // GET /institutions/:institutionId/score-history — série histórica com
 // deltas já calculados entre ciclos consecutivos (Trust Score Contínuo).
-// Já protegido pelo guard aplicado acima em todas as rotas de :institutionId.
 institutionsRouter.get(
   "/:institutionId/score-history",
   requireInstitutionAccess,
-  (req: Request, res: ExpressResponse) => {
-    // TODO: Prisma — SELECT ScoreSnapshot join Assessment (para cycleLabel
-    // e frameworkId) WHERE institutionId = :institutionId ORDER BY createdAt ASC.
-    // Mapear para CycleSnapshotDTO[] e passar para buildTrendSeries.
-    const snapshotsChronological: CycleSnapshotDTO[] = [];
+  async (req: Request, res: ExpressResponse) => {
+    const snapshots = await prisma.scoreSnapshot.findMany({
+      where: { assessment: { institutionId: req.params.institutionId } },
+      include: { assessment: true, pillarScores: { include: { pillar: true } } },
+      orderBy: { createdAt: "asc" },
+    });
+
+    const snapshotsChronological: CycleSnapshotDTO[] = snapshots.map((snap) => ({
+      id: snap.id,
+      cycleLabel: snap.assessment.cycleLabel,
+      frameworkId: snap.assessment.frameworkId,
+      createdAt: snap.createdAt.toISOString(),
+      overallScore: snap.overallScore,
+      maturityLevel: snap.maturityLevel,
+      pillarScores: snap.pillarScores.map((ps) => ({
+        pillarId: ps.pillarId,
+        code: ps.pillar.code,
+        name: ps.pillar.name,
+        score: ps.score,
+        maturityLevel: ps.maturityLevel,
+      })),
+    }));
 
     const trend = buildTrendSeries(snapshotsChronological);
     res.json({ trend });
   }
 );
 
-// GET /institutions — só equipe Dock enxerga a lista completa de clientes
-// (é o que alimenta o seletor de instituição no topo da aplicação).
-institutionsRouter.get("/", requireAnyDockUser, (req: Request, res: ExpressResponse) => {
-  // TODO: Prisma — SELECT id, name, segment FROM Institution
-  res.json({ institutions: [] });
+// GET /institutions — só equipe Dock enxerga a lista completa de clientes.
+institutionsRouter.get("/", requireAnyDockUser, async (req: Request, res: ExpressResponse) => {
+  const institutions = await prisma.institution.findMany({
+    select: { id: true, name: true, segments: true, createdAt: true },
+    orderBy: { createdAt: "desc" },
+  });
+  res.json({ institutions });
 });
 
-// POST /institutions — onboarding de um novo cliente. Só a equipe Dock cria
-// instituições; o corpo já inclui os dados do primeiro usuário admin do
-// cliente, porque uma instituição sem nenhum admin é um estado inválido
-// (ninguém do lado do cliente conseguiria nem convidar os próprios colegas).
-//
-// `segments` é obrigatório e validado contra o catálogo real (16 códigos —
-// ver src/seed/segmentsCatalog.ts) porque é isso que determina quais das
-// 232 perguntas do framework entram no assessment dessa instituição
-// (perguntas do tipo SEGMENTED). `applicabilityFlags` é opcional aqui — se
-// não vier, todas as perguntas CONDITIONAL ficam de fora até alguém
-// (Dock ou o próprio admin do cliente) preencher o perfil de aplicabilidade
-// depois, numa tela dedicada.
-institutionsRouter.post("/", requireAnyDockUser, (req: Request, res: ExpressResponse) => {
+// POST /institutions — onboarding de um novo cliente. `initialAdmin` agora
+// exige senha própria (autenticação real) — em versão futura isso vira um
+// convite por e-mail com definição de senha pelo próprio usuário; por ora,
+// a Dock define a senha inicial diretamente e repassa ao cliente.
+institutionsRouter.post("/", requireAnyDockUser, async (req: Request, res: ExpressResponse) => {
   const { name, segments, applicabilityFlags, initialAdmin } = req.body as {
     name: string;
     segments: string[];
     applicabilityFlags?: Record<string, boolean>;
-    initialAdmin: { name: string; email: string };
+    initialAdmin: { name: string; email: string; password: string };
   };
 
-  if (!name || !initialAdmin?.name || !initialAdmin?.email) {
-    return res.status(400).json({ error: "name e initialAdmin (name, email) são obrigatórios" });
+  if (!name || !initialAdmin?.name || !initialAdmin?.email || !initialAdmin?.password) {
+    return res.status(400).json({ error: "name e initialAdmin (name, email, password) são obrigatórios" });
+  }
+  if (initialAdmin.password.length < 8) {
+    return res.status(400).json({ error: "A senha do admin inicial precisa ter ao menos 8 caracteres" });
   }
   if (!Array.isArray(segments) || segments.length === 0) {
     return res.status(400).json({ error: "segments é obrigatório — pelo menos um código do catálogo de segmentos" });
@@ -95,92 +120,119 @@ institutionsRouter.post("/", requireAnyDockUser, (req: Request, res: ExpressResp
     return res.status(400).json({ error: `Segmento(s) inválido(s): ${invalidCodes.join(", ")}` });
   }
 
-  // TODO: Prisma — dentro de uma transação:
-  // 1. criar Institution { name, segments, applicabilityFlags: applicabilityFlags ?? {} }
-  // 2. criar InstitutionUser { institutionId, name: initialAdmin.name,
-  //    email: initialAdmin.email, role: "admin" }
-  // 3. disparar e-mail de convite/definição de senha para initialAdmin.email
-  //    (fora do escopo deste scaffold — provedor de e-mail ainda não plugado)
+  const normalizedEmail = initialAdmin.email.trim().toLowerCase();
+  const existing = await prisma.institutionUser.findFirst({ where: { email: normalizedEmail } });
+  if (existing) {
+    return res.status(409).json({ error: "Já existe um usuário com esse e-mail" });
+  }
+
+  const passwordHash = await bcrypt.hash(initialAdmin.password, 10);
+
+  const institution = await prisma.$transaction(async (tx) => {
+    const created = await tx.institution.create({
+      data: {
+        name,
+        segments,
+        applicabilityFlags: applicabilityFlags ?? {},
+      },
+    });
+    await tx.institutionUser.create({
+      data: {
+        institutionId: created.id,
+        name: initialAdmin.name,
+        email: normalizedEmail,
+        role: "admin",
+        passwordHash,
+      },
+    });
+    return created;
+  });
 
   const profile = { segments, conditionFlags: applicabilityFlags ?? {} };
   const applicableQuestionsCount = countApplicableQuestions(dockTrustFrameworkV3, profile);
 
   res.status(201).json({
-    id: `inst-${Date.now()}`,
-    name,
-    segments,
-    applicabilityFlags: applicabilityFlags ?? {},
-    initialAdmin: { ...initialAdmin, role: "admin" },
-    // Prévia útil pra UI de onboarding mostrar antes de confirmar: "essa
-    // instituição vai responder X das 232 perguntas do framework".
+    id: institution.id,
+    name: institution.name,
+    segments: institution.segments,
+    applicabilityFlags: institution.applicabilityFlags,
+    initialAdmin: { name: initialAdmin.name, email: normalizedEmail, role: "admin" },
     applicableQuestionsCount,
     totalQuestionsInFramework: 232,
   });
 });
 
-// GET /institutions/:institutionId/users — lista os usuários da instituição.
-// Dock vê para dar suporte; o cliente só vê os da própria instituição
-// (garantido pelo requireInstitutionAccess, que já validou o :institutionId).
+// GET /institutions/:institutionId/users
 institutionsRouter.get(
   "/:institutionId/users",
   requireInstitutionAccess,
-  (req: Request, res: ExpressResponse) => {
-    // TODO: Prisma — SELECT * FROM InstitutionUser WHERE institutionId = :institutionId
-    res.json({ users: [] });
+  async (req: Request, res: ExpressResponse) => {
+    const users = await prisma.institutionUser.findMany({
+      where: { institutionId: req.params.institutionId },
+      select: { id: true, name: true, email: true, role: true }, // nunca devolve passwordHash
+    });
+    res.json({ users });
   }
 );
 
-// POST /institutions/:institutionId/users — cria um novo usuário NAQUELA
-// instituição. Depois do onboarding inicial (feito pela Dock via
-// POST /institutions), é isso que permite ao admin do próprio cliente
-// incluir colegas sem depender da Dock — mas só o admin do cliente (ou a
-// Dock, para suporte) pode chamar essa rota; um usuário "operacional" não
-// consegue, mesmo sendo da mesma instituição.
+// POST /institutions/:institutionId/users — inclui um novo usuário NAQUELA
+// instituição. Agora exige senha própria (mesma observação do onboarding).
 institutionsRouter.post(
   "/:institutionId/users",
   requireInstitutionAccess,
   requireCanManageInstitutionUsers,
-  (req: Request, res: ExpressResponse) => {
-    const { name, email, role } = req.body as { name: string; email: string; role?: string };
+  async (req: Request, res: ExpressResponse) => {
+    const { name, email, role, password } = req.body as {
+      name: string;
+      email: string;
+      role?: string;
+      password: string;
+    };
 
-    if (!name || !email) {
-      return res.status(400).json({ error: "name e email são obrigatórios" });
+    if (!name || !email || !password) {
+      return res.status(400).json({ error: "name, email e password são obrigatórios" });
+    }
+    if (password.length < 8) {
+      return res.status(400).json({ error: "A senha precisa ter ao menos 8 caracteres" });
     }
     const allowedRoles = ["admin", "executivo", "operacional"];
     const finalRole = role && allowedRoles.includes(role) ? role : "operacional";
+    const normalizedEmail = email.trim().toLowerCase();
 
-    // TODO: Prisma — criar InstitutionUser { institutionId: req.params.institutionId,
-    // name, email, role: finalRole }. institutionId vem do parâmetro de rota,
-    // que já foi validado pelo requireInstitutionAccess — não do body, mesmo
-    // que o body venha com outro institutionId (nunca confiar nisso).
+    const existing = await prisma.institutionUser.findFirst({ where: { email: normalizedEmail } });
+    if (existing) {
+      return res.status(409).json({ error: "Já existe um usuário com esse e-mail" });
+    }
 
-    res.status(201).json({ id: `user-${Date.now()}`, name, email, role: finalRole, institutionId: req.params.institutionId });
+    const passwordHash = await bcrypt.hash(password, 10);
+    // institutionId vem do parâmetro de rota (já validado pelo
+    // requireInstitutionAccess) — nunca do body, mesmo que o body venha
+    // com outro institutionId.
+    const user = await prisma.institutionUser.create({
+      data: { institutionId: req.params.institutionId, name, email: normalizedEmail, role: finalRole, passwordHash },
+    });
+
+    res.status(201).json({ id: user.id, name: user.name, email: user.email, role: user.role, institutionId: user.institutionId });
   }
 );
 
-// GET /institutions/:institutionId — protegido: cliente só acessa a própria.
+// GET /institutions/:institutionId
 institutionsRouter.get(
   "/:institutionId",
   requireInstitutionAccess,
-  (req: Request, res: ExpressResponse) => {
-    // TODO: Prisma — buscar Institution por id (já validado pelo middleware)
-    res.json({ id: req.params.institutionId });
+  async (req: Request, res: ExpressResponse) => {
+    const institution = await prisma.institution.findUnique({ where: { id: req.params.institutionId } });
+    if (!institution) return res.status(404).json({ error: "Instituição não encontrada" });
+    res.json(institution);
   }
 );
 
 // POST /institutions/:institutionId/assessments/:assessmentId/responses/bulk-import
-// Recebe um arquivo (JSON ou CSV) com respostas em lote — alternativa a
-// responder pergunta por pergunta na UI. Usado por instituições que já têm
-// as respostas estruturadas internamente (ex: outro sistema de compliance).
 institutionsRouter.post(
   "/:institutionId/assessments/:assessmentId/responses/bulk-import",
   requireInstitutionAccess,
-  (req: Request, res: ExpressResponse) => {
-    const { fileContent, fileFormat } = req.body as {
-      fileContent: string;
-      fileFormat: "json" | "csv";
-    };
-
+  async (req: Request, res: ExpressResponse) => {
+    const { fileContent, fileFormat } = req.body as { fileContent: string; fileFormat: "json" | "csv" };
     if (!fileContent || !fileFormat) {
       return res.status(400).json({ error: "fileContent e fileFormat são obrigatórios" });
     }
@@ -192,21 +244,26 @@ institutionsRouter.post(
       return res.status(400).json({ error: "Arquivo inválido — não foi possível fazer parse." });
     }
 
-    // TODO: Prisma — buscar segments/applicabilityFlags reais da Institution
-    // (req.params.institutionId) — por ora, perfil vazio (filtro conservador,
-    // ver comentário em assessments.ts:loadInstitutionProfileStub)
-    const institutionFramework = filterFrameworkForInstitution(dockTrustFrameworkV3, { segments: [], conditionFlags: {} });
+    const profile = await loadInstitutionProfile(req.params.institutionId);
+    if (!profile) return res.status(404).json({ error: "Instituição não encontrada" });
+
+    const institutionFramework = filterFrameworkForInstitution(dockTrustFrameworkV3, profile);
     const { matched, unmatched } = matchImportEntries(entries, institutionFramework);
 
-    // TODO: Prisma — dentro de uma transação, upsert de Response para cada
-    // item em `matched` (assessmentId + questionId, gravando o optionId
-    // escolhido e recalculando normalizedScore)
+    const assessmentId = req.params.assessmentId;
+    await prisma.$transaction(
+      matched.map((m) =>
+        prisma.response.upsert({
+          where: { assessmentId_questionId: { assessmentId, questionId: m.questionId } },
+          update: { rawValue: m.optionId, normalizedScore: 0 }, // normalizado de verdade após recálculo abaixo
+          create: { assessmentId, questionId: m.questionId, rawValue: m.optionId, normalizedScore: 0 },
+        })
+      )
+    );
 
-    const responses: RawResponse[] = matched.map((m) => ({
-      questionId: m.questionId,
-      value: m.optionId,
-    }));
-    const scoreResult = calculateScore(institutionFramework, responses);
+    const allResponses = await prisma.response.findMany({ where: { assessmentId } });
+    const rawResponses: RawResponse[] = allResponses.map((r) => ({ questionId: r.questionId, value: r.rawValue as any }));
+    const scoreResult = calculateScore(institutionFramework, rawResponses);
 
     res.json({
       importedCount: matched.length,
