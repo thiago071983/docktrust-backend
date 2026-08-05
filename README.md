@@ -25,9 +25,10 @@
    npx prisma migrate deploy
    npx prisma db seed
    ```
-   Isso cria as tabelas e popula o framework completo (232 perguntas) + os
-   usuários de demonstração (`demo@docktrust.co` / `DemoTrust`, tanto do
-   lado Dock quanto uma instituição "Dock Demo" já pronta).
+   Isso cria as tabelas e popula o framework completo (232 perguntas) + a
+   conta administradora inicial `admin@docktrust.co` (senha vem da variável
+   `INITIAL_ADMIN_PASSWORD` — configure ela nas Variables ANTES de rodar
+   este passo, ou o seed falha de propósito em vez de usar uma senha padrão).
 6. **Copiar a URL pública** do serviço (Settings → Networking → "Generate
    Domain") — vai ser algo como `dock-trust-backend.up.railway.app`. É essa
    URL que o frontend vai chamar (ver próxima etapa da conversa: trocar os
@@ -56,9 +57,10 @@ segundo fator não protege nada (quem descobrir a senha também já recebe o
 código na mesma resposta). É o próximo gap a fechar depois que o banco
 estiver no ar.
 
-Usuários de demonstração já vêm no seed (`prisma/seed.ts`):
-- `demo@docktrust.co` / `DemoTrust` — lado Dock (`TRUST_ADMIN`)
-- `cliente@dockdemo.com` / `DemoTrust` — lado cliente (institution "Dock Demo")
+A conta administradora inicial vem do seed (`prisma/seed.ts`):
+- `admin@docktrust.co` — lado Dock (`TRUST_ADMIN`), senha definida por você via
+  `INITIAL_ADMIN_PASSWORD`. Nenhuma instituição fictícia é criada em produção
+  — se uma "Dock Demo" existir de uma fase anterior, o seed a remove.
 
 ## Rodar localmente (antes de subir pra produção)
 
