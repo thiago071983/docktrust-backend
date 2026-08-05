@@ -27,8 +27,8 @@ const testFramework: FrameworkDTO = {
               type: "MULTIPLE_CHOICE",
               weight: 1,
               options: [
-                { id: "low", label: "Baixo", scoreValue: 0 },
-                { id: "high", label: "Alto", scoreValue: 100 },
+                { id: "low", label: "Baixo", score: 0 },
+                { id: "high", label: "Alto", score: 100 },
               ],
             },
           ],

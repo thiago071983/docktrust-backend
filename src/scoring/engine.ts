@@ -124,14 +124,21 @@ function normalizeAnswer(
   question: QuestionDTO,
   raw: boolean | string | number
 ): number {
-  switch (question.type) {
+  // As 232 perguntas do framework real (geradas da planilha) não setam
+  // `type` explicitamente — só as perguntas de métrica (uptime, taxa de
+  // fraude etc.) têm. Sem esse fallback, TODA pergunta sem type explícito
+  // caía no `default: return 0` — ou seja, o score de qualquer resposta
+  // válida contra o framework v3 sempre dava 0, silenciosamente.
+  const effectiveType = question.type || "MULTIPLE_CHOICE";
+
+  switch (effectiveType) {
     case "BOOLEAN":
       return raw === true ? 100 : 0;
 
     case "MULTIPLE_CHOICE":
     case "MATURITY_SCALE": {
       const option = question.options?.find((o) => o.id === raw);
-      return option ? clamp(option.scoreValue) : 0;
+      return option ? clamp(option.score) : 0;
     }
 
     case "METRIC":
