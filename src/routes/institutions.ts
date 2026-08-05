@@ -234,6 +234,48 @@ institutionsRouter.get(
   })
 );
 
+// PATCH /institutions/:institutionId — editar uma instituição existente. Só
+// a equipe Dock edita (segmento, condições e módulos contratados são
+// decisões comerciais/de configuração, não algo que o próprio cliente
+// deveria conseguir mudar sozinho).
+institutionsRouter.patch(
+  "/:institutionId",
+  requireAnyDockUser,
+  asyncHandler(async (req: Request, res: ExpressResponse) => {
+    const { name, segments, applicabilityFlags, hasThreatIntel, hasExposedSurface } = req.body as {
+      name?: string;
+      segments?: string[];
+      applicabilityFlags?: Record<string, boolean>;
+      hasThreatIntel?: boolean;
+      hasExposedSurface?: boolean;
+    };
+
+    if (segments !== undefined) {
+      if (!Array.isArray(segments) || segments.length === 0) {
+        return res.status(400).json({ error: "segments precisa ser um array com ao menos um código" });
+      }
+      const validCodes = new Set(CLIENT_SEGMENTS.map((s) => s.code));
+      const invalidCodes = segments.filter((s) => !validCodes.has(s));
+      if (invalidCodes.length > 0) {
+        return res.status(400).json({ error: `Segmento(s) inválido(s): ${invalidCodes.join(", ")}` });
+      }
+    }
+
+    const institution = await prisma.institution.update({
+      where: { id: req.params.institutionId },
+      data: {
+        ...(name !== undefined ? { name } : {}),
+        ...(segments !== undefined ? { segments } : {}),
+        ...(applicabilityFlags !== undefined ? { applicabilityFlags } : {}),
+        ...(hasThreatIntel !== undefined ? { hasThreatIntel } : {}),
+        ...(hasExposedSurface !== undefined ? { hasExposedSurface } : {}),
+      },
+    });
+
+    res.json(institution);
+  })
+);
+
 // POST /institutions/:institutionId/assessments/:assessmentId/responses/bulk-import
 institutionsRouter.post(
   "/:institutionId/assessments/:assessmentId/responses/bulk-import",
