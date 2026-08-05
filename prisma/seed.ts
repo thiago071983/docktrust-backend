@@ -153,25 +153,28 @@ async function main() {
     console.log(`✓ Framework v3.0 completo: ${totalQuestions} perguntas`);
   }
 
-  // 3. DockUser administrador — em produção, a senha inicial vem de uma
-  // variável de ambiente (ADMIN_INITIAL_SECRET), nunca escrita aqui no
-  // código. Se uma conta antiga demo@docktrust.co existir (de antes desta
-  // limpeza), ela é renomeada para a identidade de produção em vez de
-  // deixar duas contas soltas.
+  // 3. DockUser administrador.
+  //
+  // TEMPORÁRIO (desbloqueio pra demo — ver conversa com o time, pendência
+  // registrada): o Railway não está propagando NENHUMA variável de
+  // ambiente nova pra este serviço (nem ADMIN_INITIAL_SECRET, nem uma
+  // variável de teste qualquer criada do zero) — não é bug do nosso código,
+  // é algo no serviço do Railway (provavelmente resolve recriando o
+  // serviço do zero). Enquanto isso não é investigado com calma, o seed usa
+  // a variável de ambiente SE ela existir, e cai numa senha fixa se não —
+  // assim, quando o Railway for corrigido, isso passa a funcionar sozinho
+  // sem precisar tocar no código de novo.
+  //
+  // AÇÃO PENDENTE PÓS-DEMO: trocar essa senha fixa (ela está exposta no
+  // código-fonte enquanto isso não for resolvido) e voltar a exigir só a
+  // variável de ambiente, como estava antes deste fallback.
   const ADMIN_EMAIL = "admin@docktrust.co";
   const ADMIN_NAME = "Administrador Dock Trust";
-  const adminPassword = process.env.ADMIN_INITIAL_SECRET;
-  if (!adminPassword) {
-    // DIAGNÓSTICO TEMPORÁRIO — nunca loga valores, só os NOMES das variáveis
-    // que o processo realmente enxerga. É pra descobrir se ADMIN_INITIAL_SECRET
-    // chega com outro nome/typo, ou se não chega de verdade nesse container.
-    const envKeys = Object.keys(process.env).sort();
-    console.log("\n[DIAGNÓSTICO] Variáveis de ambiente visíveis neste processo (só os nomes):");
-    console.log(envKeys.join(", "));
-    console.log("[DIAGNÓSTICO] Existe alguma parecida com ADMIN ou PASSWORD?",
-      envKeys.filter((k) => /ADMIN|PASSWORD/i.test(k)));
-    throw new Error(
-      "ADMIN_INITIAL_SECRET não configurada. Defina essa variável de ambiente (a senha inicial da conta admin@docktrust.co) antes de rodar o seed em produção."
+  const FALLBACK_ADMIN_PASSWORD = "DockTrust#2026!";
+  const adminPassword = process.env.ADMIN_INITIAL_SECRET || FALLBACK_ADMIN_PASSWORD;
+  if (!process.env.ADMIN_INITIAL_SECRET) {
+    console.log(
+      "\n⚠️  ADMIN_INITIAL_SECRET não chegou como variável de ambiente — usando senha temporária fixa no código. Isso é uma pendência conhecida, resolver depois da demo (ver comentário acima nesta função)."
     );
   }
   const adminPasswordHash = await bcrypt.hash(adminPassword, 10);
