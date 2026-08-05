@@ -162,6 +162,14 @@ async function main() {
   const ADMIN_NAME = "Administrador Dock Trust";
   const adminPassword = process.env.INITIAL_ADMIN_PASSWORD;
   if (!adminPassword) {
+    // DIAGNÓSTICO TEMPORÁRIO — nunca loga valores, só os NOMES das variáveis
+    // que o processo realmente enxerga. É pra descobrir se INITIAL_ADMIN_PASSWORD
+    // chega com outro nome/typo, ou se não chega de verdade nesse container.
+    const envKeys = Object.keys(process.env).sort();
+    console.log("\n[DIAGNÓSTICO] Variáveis de ambiente visíveis neste processo (só os nomes):");
+    console.log(envKeys.join(", "));
+    console.log("[DIAGNÓSTICO] Existe alguma parecida com ADMIN ou PASSWORD?",
+      envKeys.filter((k) => /ADMIN|PASSWORD/i.test(k)));
     throw new Error(
       "INITIAL_ADMIN_PASSWORD não configurada. Defina essa variável de ambiente (a senha inicial da conta admin@docktrust.co) antes de rodar o seed em produção."
     );
