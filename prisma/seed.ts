@@ -40,17 +40,38 @@ async function main() {
   }
   console.log(`✓ ${TRUST_SERVICES.length} serviços cadastrados`);
 
-  // 2. Framework v3 — se já existe, NÃO mexe. A correção de IDs (bug
-  // histórico, já resolvido) rodou uma vez com sucesso; manter a lógica de
-  // "apagar e recriar a cada deploy" pararia de funcionar assim que existir
-  // qualquer Assessment real apontando pro framework (a FK entre Assessment
-  // e Framework é RESTRICT — o Postgres corretamente recusa apagar algo
-  // referenciado). Se um bug de schema/dados aparecer de novo no futuro,
-  // a correção correta é uma migração específica, não apagar tudo aqui.
+  // 2. Framework v3 — verifica de verdade se os IDs estão corretos (não só
+  // "existe, então tá bom"). O jeito de verificar: uma pergunta específica
+  // que sabemos o ID exato no JSON-fonte (tg-001) precisa existir com ESSE
+  // id na tabela Question. Se não existir, é o bug antigo (Prisma gerou
+  // IDs próprios em vez de usar os do JSON) — reconstrói tudo, dessa vez
+  // limpando em cascata TAMBÉM Assessment/Response/ScoreSnapshot/PillarScore
+  // associados (não só Pillar/Control/Question/Option), porque foi
+  // exatamente a FK de Assessment que travou a última tentativa de
+  // reconstrução. Se os IDs já estiverem certos, não toca em nada.
   const existingFramework = await prisma.framework.findFirst({ where: { version: "3.0" } });
-  if (existingFramework) {
-    console.log("✓ Framework v3.0 já existe — pulando (schema/dados já corretos)");
+  const idsAreCorrect = existingFramework
+    ? Boolean(await prisma.question.findUnique({ where: { id: "tg-001" } }))
+    : false;
+
+  if (existingFramework && idsAreCorrect) {
+    console.log("✓ Framework v3.0 já existe e os IDs estão corretos — pulando");
   } else {
+    if (existingFramework && !idsAreCorrect) {
+      console.log("Framework v3.0 existe mas com IDs incorretos (bug antigo) — reconstruindo do zero...");
+      const frameworkId = existingFramework.id;
+      await prisma.pillarScore.deleteMany({ where: { snapshot: { assessment: { frameworkId } } } });
+      await prisma.scoreSnapshot.deleteMany({ where: { assessment: { frameworkId } } });
+      await prisma.response.deleteMany({ where: { assessment: { frameworkId } } });
+      await prisma.assessment.deleteMany({ where: { frameworkId } });
+      await prisma.questionOption.deleteMany({ where: { question: { control: { pillar: { frameworkId } } } } });
+      await prisma.question.deleteMany({ where: { control: { pillar: { frameworkId } } } });
+      await prisma.control.deleteMany({ where: { pillar: { frameworkId } } });
+      await prisma.pillar.deleteMany({ where: { frameworkId } });
+      await prisma.framework.delete({ where: { id: frameworkId } });
+      console.log("✓ Framework antigo removido (inclusive assessments de teste associados)");
+    }
+
     const framework = await prisma.framework.create({
       data: { name: "Dock Trust Framework", version: "3.0", isActive: true },
     });
