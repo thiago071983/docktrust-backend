@@ -1,13 +1,13 @@
 // ============================================================================
-// Seed do banco — roda uma vez após `prisma migrate deploy`:
+// Seed do banco — roda uma vez após `prisma migrate deploy`/`db push`:
 //   npx prisma db seed
 // (ou automaticamente, se configurado em package.json -> "prisma.seed")
 //
 // Popula: catálogo de serviços, o Dock Trust Framework v3 completo (232
-// perguntas geradas da planilha oficial), um DockUser de demonstração e uma
-// Institution de demonstração com seu próprio usuário — as MESMAS
-// credenciais que já existiam na tela de login fake do frontend, agora
-// validadas de verdade contra o banco.
+// perguntas geradas da planilha oficial), e a conta administradora inicial
+// (admin@docktrust.co — senha vem de INITIAL_ADMIN_PASSWORD, variável de
+// ambiente). Ambiente de produção: nenhuma instituição fictícia é criada —
+// se uma "Dock Demo" existir de uma fase anterior, este script a remove.
 // ============================================================================
 
 import { PrismaClient, QuestionType, ApplicabilityType } from "@prisma/client";
@@ -25,7 +25,9 @@ const PILLAR_DESCRIPTIONS: Record<string, string> = {
   T2: "A confiança se estende ao ecossistema e é fortalecida pela colaboração.",
 };
 
-const DEMO_PASSWORD = "DemoTrust";
+// A senha do admin inicial agora vem de variável de ambiente (ver bloco
+// abaixo) — não fica mais escrita no código-fonte, diferente da fase de
+// demonstração.
 
 async function main() {
   console.log("Seed iniciado...\n");
@@ -151,59 +153,52 @@ async function main() {
     console.log(`✓ Framework v3.0 completo: ${totalQuestions} perguntas`);
   }
 
-  // 3. DockUser de demonstração — mesma credencial que já existia na tela
-  // de login fake: demo@docktrust.co / DemoTrust (agora validada de verdade)
-  const demoPasswordHash = await bcrypt.hash(DEMO_PASSWORD, 10);
-  await prisma.dockUser.upsert({
-    where: { email: "demo@docktrust.co" },
-    update: {},
-    create: {
-      email: "demo@docktrust.co",
-      name: "Demo Dock Trust",
-      role: "TRUST_ADMIN",
-      passwordHash: demoPasswordHash,
-    },
-  });
-  console.log("\n✓ DockUser demo@docktrust.co (senha: DemoTrust)");
+  // 3. DockUser administrador — em produção, a senha inicial vem de uma
+  // variável de ambiente (INITIAL_ADMIN_PASSWORD), nunca escrita aqui no
+  // código. Se uma conta antiga demo@docktrust.co existir (de antes desta
+  // limpeza), ela é renomeada para a identidade de produção em vez de
+  // deixar duas contas soltas.
+  const ADMIN_EMAIL = "admin@docktrust.co";
+  const ADMIN_NAME = "Administrador Dock Trust";
+  const adminPassword = process.env.INITIAL_ADMIN_PASSWORD;
+  if (!adminPassword) {
+    throw new Error(
+      "INITIAL_ADMIN_PASSWORD não configurada. Defina essa variável de ambiente (a senha inicial da conta admin@docktrust.co) antes de rodar o seed em produção."
+    );
+  }
+  const adminPasswordHash = await bcrypt.hash(adminPassword, 10);
 
-  // 4. Institution de demonstração + usuário do lado do cliente — cobre o
-  // caminho "institution" do middleware de acesso, não só o "dock".
-  const existingDemoInstitution = await prisma.institution.findFirst({ where: { name: "Dock Demo" } });
-  if (existingDemoInstitution) {
-    // Já existe (de um seed anterior a estes dois campos) — garante que os
-    // módulos de demonstração ficam marcados como contratados mesmo sem
-    // recriar a instituição do zero.
-    await prisma.institution.update({
-      where: { id: existingDemoInstitution.id },
-      data: { hasThreatIntel: true, hasExposedSurface: true },
+  const legacyDemoUser = await prisma.dockUser.findUnique({ where: { email: "demo@docktrust.co" } });
+  if (legacyDemoUser) {
+    await prisma.dockUser.update({
+      where: { id: legacyDemoUser.id },
+      data: { email: ADMIN_EMAIL, name: ADMIN_NAME, passwordHash: adminPasswordHash },
     });
-    console.log("✓ Institution 'Dock Demo' já existia — atualizada com os módulos contratados (Threat Intel + Exposed Surface)");
+    console.log(`\n✓ Conta demo@docktrust.co renomeada para ${ADMIN_EMAIL}`);
   } else {
-    const conditionKeys = [
-      "USES_THIRD_PARTIES", "SUBJECT_TO_AML_CFT", "HAS_CUSTOMER_RELATIONSHIP", "DEVELOPS_SOFTWARE",
-      "PROCESSES_TRANSACTIONS", "PROCESSES_PERSONAL_DATA", "USES_AI", "USES_OR_EXPOSES_APIS",
-      "OFFERS_DIGITAL_CHANNELS", "OPERATES_PIX", "USES_CLOUD", "HAS_INTERNAL_AUDIT",
-    ];
-    const demoInstitution = await prisma.institution.create({
-      data: {
-        name: "Dock Demo",
-        segments: ["BDG"],
-        applicabilityFlags: Object.fromEntries(conditionKeys.map((k) => [k, true])),
-        hasThreatIntel: true,
-        hasExposedSurface: true,
-      },
+    await prisma.dockUser.upsert({
+      where: { email: ADMIN_EMAIL },
+      update: { passwordHash: adminPasswordHash },
+      create: { email: ADMIN_EMAIL, name: ADMIN_NAME, role: "TRUST_ADMIN", passwordHash: adminPasswordHash },
     });
+    console.log(`\n✓ DockUser ${ADMIN_EMAIL} pronto`);
+  }
 
-    await prisma.institutionUser.create({
-      data: {
-        institutionId: demoInstitution.id,
-        email: "cliente@dockdemo.com",
-        name: "Cliente Demo",
-        role: "admin",
-        passwordHash: await bcrypt.hash(DEMO_PASSWORD, 10),
-      },
-    });
-    console.log("✓ Institution 'Dock Demo' + InstitutionUser cliente@dockdemo.com (senha: DemoTrust)");
+  // 4. Ambiente de produção não deve ter instituição fictícia — remove a
+  // "Dock Demo" (e tudo que dependia dela: usuários, assessments,
+  // respostas, snapshots) se ela ainda existir de uma fase anterior.
+  const demoInstitution = await prisma.institution.findFirst({ where: { name: "Dock Demo" } });
+  if (demoInstitution) {
+    const instId = demoInstitution.id;
+    await prisma.pillarScore.deleteMany({ where: { snapshot: { assessment: { institutionId: instId } } } });
+    await prisma.scoreSnapshot.deleteMany({ where: { assessment: { institutionId: instId } } });
+    await prisma.response.deleteMany({ where: { assessment: { institutionId: instId } } });
+    await prisma.assessment.deleteMany({ where: { institutionId: instId } });
+    await prisma.institutionUser.deleteMany({ where: { institutionId: instId } });
+    await prisma.institution.delete({ where: { id: instId } });
+    console.log("✓ Institution 'Dock Demo' removida (produção não deve ter dado fictício)");
+  } else {
+    console.log("✓ Nenhuma instituição de demonstração encontrada (ambiente já limpo)");
   }
 
   console.log("\nSeed concluído.");
