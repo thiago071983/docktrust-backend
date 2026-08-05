@@ -223,6 +223,41 @@ institutionsRouter.post(
   })
 );
 
+// PATCH /institutions/:institutionId/users/:userId/password — redefine a
+// senha de OUTRO usuário daquela instituição. Só quem já gerencia usuários
+// (Dock, ou o admin da própria instituição) pode fazer isso — não pede a
+// senha atual, porque é justamente o caminho pra quando alguém esqueceu.
+institutionsRouter.patch(
+  "/:institutionId/users/:userId/password",
+  requireInstitutionAccess,
+  requireCanManageInstitutionUsers,
+  asyncHandler(async (req: Request, res: ExpressResponse) => {
+    const { newPassword } = req.body as { newPassword?: string };
+    if (!newPassword) {
+      return res.status(400).json({ error: "newPassword é obrigatório" });
+    }
+    if (newPassword.length < 8) {
+      return res.status(400).json({ error: "A nova senha precisa ter ao menos 8 caracteres" });
+    }
+
+    // Confirma que o usuário-alvo pertence MESMO a essa instituição — nunca
+    // confia só no :userId da URL, senão um admin de uma instituição
+    // conseguiria redefinir a senha de usuário de OUTRA instituição só
+    // adivinhando o id.
+    const targetUser = await prisma.institutionUser.findFirst({
+      where: { id: req.params.userId, institutionId: req.params.institutionId },
+    });
+    if (!targetUser) {
+      return res.status(404).json({ error: "Usuário não encontrado nesta instituição" });
+    }
+
+    const newHash = await bcrypt.hash(newPassword, 10);
+    await prisma.institutionUser.update({ where: { id: targetUser.id }, data: { passwordHash: newHash } });
+
+    res.json({ ok: true });
+  })
+);
+
 // GET /institutions/:institutionId
 institutionsRouter.get(
   "/:institutionId",

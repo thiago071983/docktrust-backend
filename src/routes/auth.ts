@@ -16,7 +16,7 @@ import { Router, Request, Response as ExpressResponse } from "express";
 import bcrypt from "bcryptjs";
 import crypto from "crypto";
 import { prisma } from "../db";
-import { signToken } from "../middleware/auth";
+import { signToken, authenticate } from "../middleware/auth";
 import { asyncHandler } from "../middleware/asyncHandler";
 
 export const authRouter = Router();
@@ -130,3 +130,46 @@ setInterval(() => {
     if (value.expiresAt < now) pendingLogins.delete(key);
   }
 }, 60_000);
+
+// PATCH /auth/password — o próprio usuário logado troca a própria senha.
+// Rota fora do /auth público por padrão (authRouter é montado antes do
+// authenticate global em server.ts) — por isso aplica authenticate aqui,
+// direto nesta rota, pra saber quem está pedindo a troca.
+authRouter.patch(
+  "/password",
+  authenticate,
+  asyncHandler(async (req: Request, res: ExpressResponse) => {
+    const { currentPassword, newPassword } = req.body as { currentPassword?: string; newPassword?: string };
+
+    if (!currentPassword || !newPassword) {
+      return res.status(400).json({ error: "currentPassword e newPassword são obrigatórios" });
+    }
+    if (newPassword.length < 8) {
+      return res.status(400).json({ error: "A nova senha precisa ter ao menos 8 caracteres" });
+    }
+    if (newPassword === currentPassword) {
+      return res.status(400).json({ error: "A nova senha precisa ser diferente da atual" });
+    }
+
+    const principal = req.principal!; // authenticate já garantiu que existe
+
+    if (principal.type === "dock") {
+      const user = await prisma.dockUser.findUnique({ where: { id: principal.userId } });
+      if (!user) return res.status(404).json({ error: "Usuário não encontrado" });
+      const valid = await bcrypt.compare(currentPassword, user.passwordHash);
+      if (!valid) return res.status(401).json({ error: "Senha atual incorreta" });
+      const newHash = await bcrypt.hash(newPassword, 10);
+      await prisma.dockUser.update({ where: { id: user.id }, data: { passwordHash: newHash } });
+    } else {
+      const user = await prisma.institutionUser.findUnique({ where: { id: principal.userId } });
+      if (!user) return res.status(404).json({ error: "Usuário não encontrado" });
+      const valid = await bcrypt.compare(currentPassword, user.passwordHash);
+      if (!valid) return res.status(401).json({ error: "Senha atual incorreta" });
+      const newHash = await bcrypt.hash(newPassword, 10);
+      await prisma.institutionUser.update({ where: { id: user.id }, data: { passwordHash: newHash } });
+    }
+
+    res.json({ ok: true });
+  })
+);
+
