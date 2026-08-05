@@ -88,7 +88,7 @@ institutionsRouter.get(
 // GET /institutions — só equipe Dock enxerga a lista completa de clientes.
 institutionsRouter.get("/", requireAnyDockUser, asyncHandler(async (req: Request, res: ExpressResponse) => {
   const institutions = await prisma.institution.findMany({
-    select: { id: true, name: true, segments: true, createdAt: true },
+    select: { id: true, name: true, segments: true, createdAt: true, hasThreatIntel: true, hasExposedSurface: true },
     orderBy: { createdAt: "desc" },
   });
   res.json({ institutions });
@@ -99,11 +99,13 @@ institutionsRouter.get("/", requireAnyDockUser, asyncHandler(async (req: Request
 // convite por e-mail com definição de senha pelo próprio usuário; por ora,
 // a Dock define a senha inicial diretamente e repassa ao cliente.
 institutionsRouter.post("/", requireAnyDockUser, asyncHandler(async (req: Request, res: ExpressResponse) => {
-  const { name, segments, applicabilityFlags, initialAdmin } = req.body as {
+  const { name, segments, applicabilityFlags, initialAdmin, hasThreatIntel, hasExposedSurface } = req.body as {
     name: string;
     segments: string[];
     applicabilityFlags?: Record<string, boolean>;
     initialAdmin: { name: string; email: string; password: string };
+    hasThreatIntel?: boolean;
+    hasExposedSurface?: boolean;
   };
 
   if (!name || !initialAdmin?.name || !initialAdmin?.email || !initialAdmin?.password) {
@@ -135,6 +137,8 @@ institutionsRouter.post("/", requireAnyDockUser, asyncHandler(async (req: Reques
         name,
         segments,
         applicabilityFlags: applicabilityFlags ?? {},
+        hasThreatIntel: Boolean(hasThreatIntel),
+        hasExposedSurface: Boolean(hasExposedSurface),
       },
     });
     await tx.institutionUser.create({
@@ -157,6 +161,8 @@ institutionsRouter.post("/", requireAnyDockUser, asyncHandler(async (req: Reques
     name: institution.name,
     segments: institution.segments,
     applicabilityFlags: institution.applicabilityFlags,
+    hasThreatIntel: institution.hasThreatIntel,
+    hasExposedSurface: institution.hasExposedSurface,
     initialAdmin: { name: initialAdmin.name, email: normalizedEmail, role: "admin" },
     applicableQuestionsCount,
     totalQuestionsInFramework: 232,
