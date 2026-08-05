@@ -40,31 +40,17 @@ async function main() {
   }
   console.log(`✓ ${TRUST_SERVICES.length} serviços cadastrados`);
 
-  // 2. Framework v3 — remove qualquer versão anterior antes de recriar.
-  // Isso é deliberado (não é só "não duplicar"): se uma versão anterior do
-  // seed rodou com um bug nos IDs (já aconteceu — ver histórico), rodar de
-  // novo tinha que corrigir sozinho, sem exigir alguém apagando tabela à
-  // mão no banco. Seguro porque, neste estágio, nenhuma Response real de
-  // cliente deveria existir ainda apontando pros IDs antigos — mas por
-  // garantia, remove primeiro qualquer Response órfã antes de remover as
-  // perguntas que ela referencia.
+  // 2. Framework v3 — se já existe, NÃO mexe. A correção de IDs (bug
+  // histórico, já resolvido) rodou uma vez com sucesso; manter a lógica de
+  // "apagar e recriar a cada deploy" pararia de funcionar assim que existir
+  // qualquer Assessment real apontando pro framework (a FK entre Assessment
+  // e Framework é RESTRICT — o Postgres corretamente recusa apagar algo
+  // referenciado). Se um bug de schema/dados aparecer de novo no futuro,
+  // a correção correta é uma migração específica, não apagar tudo aqui.
   const existingFramework = await prisma.framework.findFirst({ where: { version: "3.0" } });
   if (existingFramework) {
-    console.log("Framework v3.0 já existe — removendo para recriar do zero (garante IDs corretos)...");
-    await prisma.response.deleteMany({
-      where: { question: { control: { pillar: { frameworkId: existingFramework.id } } } },
-    });
-    await prisma.questionOption.deleteMany({
-      where: { question: { control: { pillar: { frameworkId: existingFramework.id } } } },
-    });
-    await prisma.question.deleteMany({ where: { control: { pillar: { frameworkId: existingFramework.id } } } });
-    await prisma.control.deleteMany({ where: { pillar: { frameworkId: existingFramework.id } } });
-    await prisma.pillar.deleteMany({ where: { frameworkId: existingFramework.id } });
-    await prisma.framework.delete({ where: { id: existingFramework.id } });
-    console.log("✓ Framework antigo removido");
-  }
-
-  {
+    console.log("✓ Framework v3.0 já existe — pulando (schema/dados já corretos)");
+  } else {
     const framework = await prisma.framework.create({
       data: { name: "Dock Trust Framework", version: "3.0", isActive: true },
     });
