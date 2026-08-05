@@ -88,7 +88,7 @@ institutionsRouter.get(
 // GET /institutions — só equipe Dock enxerga a lista completa de clientes.
 institutionsRouter.get("/", requireAnyDockUser, asyncHandler(async (req: Request, res: ExpressResponse) => {
   const institutions = await prisma.institution.findMany({
-    select: { id: true, name: true, segments: true, createdAt: true, hasThreatIntel: true, hasExposedSurface: true },
+    select: { id: true, name: true, segments: true, applicabilityFlags: true, createdAt: true, hasThreatIntel: true, hasExposedSurface: true },
     orderBy: { createdAt: "desc" },
   });
   res.json({ institutions });
