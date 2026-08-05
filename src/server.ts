@@ -48,6 +48,30 @@ app.use("/assessments", assessmentsRouter);
 app.use("/institutions", institutionsRouter);
 app.use("/admin", adminRouter);
 
+// Middleware de erro — precisa ser o ÚLTIMO `app.use`. Com o asyncHandler
+// envolvendo toda rota assíncrona, qualquer exceção (erro do Prisma, bug,
+// o que for) cai aqui em vez de derrubar o processo. Antes disso existir,
+// um erro dentro de uma rota async virava uma unhandled rejection e o
+// Railway reportava isso como 502 (o navegador então via isso como falha
+// de CORS, já que a resposta de erro genérica do proxy não tem os headers
+// de CORS que o Express normalmente adicionaria).
+app.use((err: any, _req: Request, res: Response, _next: express.NextFunction) => {
+  console.error("Erro não tratado numa rota:", err);
+  if (res.headersSent) return;
+  res.status(500).json({ error: "Erro interno no servidor. Tente novamente em instantes." });
+});
+
+// Rede de segurança adicional a nível de processo — loga em vez de deixar
+// o Node matar o processo silenciosamente numa promise rejeitada que
+// escapou de todo o resto (não deveria acontecer mais, com o asyncHandler
+// em todo lugar, mas é barato manter como última linha de defesa).
+process.on("unhandledRejection", (reason) => {
+  console.error("Unhandled rejection:", reason);
+});
+process.on("uncaughtException", (err) => {
+  console.error("Uncaught exception:", err);
+});
+
 const PORT = process.env.PORT || 3333;
 app.listen(PORT, () => {
   console.log(`Dock Trust Platform API rodando na porta ${PORT}`);
