@@ -40,11 +40,31 @@ async function main() {
   }
   console.log(`✓ ${TRUST_SERVICES.length} serviços cadastrados`);
 
-  // 2. Framework v3 — se já existir uma versão ativa, não duplica
-  const existing = await prisma.framework.findFirst({ where: { version: "3.0" } });
-  if (existing) {
-    console.log("✓ Framework v3.0 já existe — pulando (delete manualmente pra re-seed completo)");
-  } else {
+  // 2. Framework v3 — remove qualquer versão anterior antes de recriar.
+  // Isso é deliberado (não é só "não duplicar"): se uma versão anterior do
+  // seed rodou com um bug nos IDs (já aconteceu — ver histórico), rodar de
+  // novo tinha que corrigir sozinho, sem exigir alguém apagando tabela à
+  // mão no banco. Seguro porque, neste estágio, nenhuma Response real de
+  // cliente deveria existir ainda apontando pros IDs antigos — mas por
+  // garantia, remove primeiro qualquer Response órfã antes de remover as
+  // perguntas que ela referencia.
+  const existingFramework = await prisma.framework.findFirst({ where: { version: "3.0" } });
+  if (existingFramework) {
+    console.log("Framework v3.0 já existe — removendo para recriar do zero (garante IDs corretos)...");
+    await prisma.response.deleteMany({
+      where: { question: { control: { pillar: { frameworkId: existingFramework.id } } } },
+    });
+    await prisma.questionOption.deleteMany({
+      where: { question: { control: { pillar: { frameworkId: existingFramework.id } } } },
+    });
+    await prisma.question.deleteMany({ where: { control: { pillar: { frameworkId: existingFramework.id } } } });
+    await prisma.control.deleteMany({ where: { pillar: { frameworkId: existingFramework.id } } });
+    await prisma.pillar.deleteMany({ where: { frameworkId: existingFramework.id } });
+    await prisma.framework.delete({ where: { id: existingFramework.id } });
+    console.log("✓ Framework antigo removido");
+  }
+
+  {
     const framework = await prisma.framework.create({
       data: { name: "Dock Trust Framework", version: "3.0", isActive: true },
     });
@@ -55,6 +75,7 @@ async function main() {
     for (const pillar of frameworkData.pillars as any[]) {
       const pillarRecord = await prisma.pillar.create({
         data: {
+          id: pillar.id, // ID original do JSON — não deixar o Prisma gerar um novo
           frameworkId: framework.id,
           code: pillar.code,
           name: pillar.name,
@@ -69,6 +90,7 @@ async function main() {
       for (const control of pillar.controls) {
         const controlRecord = await prisma.control.create({
           data: {
+            id: control.id, // idem — ID original do JSON
             pillarId: pillarRecord.id,
             name: control.name,
             weight: control.weight,
@@ -81,6 +103,12 @@ async function main() {
         for (const question of control.questions) {
           const questionRecord = await prisma.question.create({
             data: {
+              // CRÍTICO: usar o mesmo ID que o framework em memória usa
+              // (src/seed/frameworkSeedV3.ts) — é esse ID que o frontend
+              // envia de volta em Response.questionId. Se o Prisma gerar um
+              // cuid novo aqui em vez de reaproveitar este, toda resposta
+              // salva falha silenciosamente por violar a foreign key.
+              id: question.id,
               controlId: controlRecord.id,
               text: question.text,
               type: question.type === "METRIC" ? QuestionType.METRIC : QuestionType.MULTIPLE_CHOICE,
