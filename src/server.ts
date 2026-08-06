@@ -3,7 +3,6 @@ dotenv.config();
 
 import express, { Request, Response } from "express";
 import cors from "cors";
-import { assessmentsRouter } from "./routes/assessments";
 import { institutionsRouter } from "./routes/institutions";
 import { adminRouter } from "./routes/admin";
 import { authRouter } from "./routes/auth";
@@ -44,7 +43,13 @@ app.use("/auth", authRouter);
 // Tudo abaixo daqui exige principal autenticado (Dock ou Instituição)
 app.use(authenticate);
 
-app.use("/assessments", assessmentsRouter);
+// NOTA: assessmentsRouter NÃO é montado aqui solto em "/assessments" — só
+// dentro de institutionsRouter, em "/:institutionId/assessments" (ver
+// routes/institutions.ts), que é o único lugar onde passa por
+// requireInstitutionAccess. Montá-lo aqui também, sem esse guard, deixaria
+// req.params.institutionId undefined nessas rotas — e como o Prisma ignora
+// filtros "undefined" em vez de dar erro, isso faria a busca de assessment
+// enxergar TODAS as instituições, não só a do usuário logado.
 app.use("/institutions", institutionsRouter);
 app.use("/admin", adminRouter);
 
